@@ -18,6 +18,11 @@ export interface StateContextConsumerProps<State> {
   children: (value: State, set: SetState<State>) => JSX.Element;
 }
 
+export interface StateContextSelectorProps<State, R> {
+  selector: (value: State) => R;
+  children: (value: R, set: SetState<State>) => JSX.Element;
+}
+
 type BaseContextInterface<State> =
   ContextInterface<StateContextProviderProps<State>, StateContextConsumerProps<State>>;
 
@@ -30,6 +35,8 @@ export interface StateContextInterface<State> extends BaseContextInterface<State
   useSetState(): SetState<State>;
   useSelectedValue<R>(selector: (value: State) => R): R;
   useSelectedState<R>(selector: (value: State) => R): [R, SetState<State>];
+
+  Selector<R>(props: StateContextSelectorProps<State, R>): JSX.Element;
 }
 
 export default function createStateContext<State>(
@@ -140,9 +147,17 @@ export default function createStateContext<State>(
     return children(state, setState);
   }
 
+  function Selector<R>({ selector, children }: StateContextSelectorProps<State, R>): JSX.Element {
+    const [state, setState] = useSelectedState(selector);
+
+    return children(state, setState);
+  }
+
   return {
     Provider,
     Consumer,
+    Selector,
+
     set displayName(value: string | undefined) {
       InternalContext.displayName = value;
     },

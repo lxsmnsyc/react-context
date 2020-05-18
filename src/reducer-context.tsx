@@ -150,6 +150,7 @@ export default function createStateContext<State, Action>(
   return {
     Provider,
     Consumer,
+
     set displayName(value: string | undefined) {
       InternalContext.displayName = value;
     },
