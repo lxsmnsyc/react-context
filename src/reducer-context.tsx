@@ -1,12 +1,8 @@
 import React, {
-  Dispatch, createContext, useContext, useEffect, Reducer,
+  Dispatch, Reducer, useReducer, useCallback, useMemo,
 } from 'react';
 import { ContextInterface } from './types';
-import useConstant from './hooks/useConstant';
-import Notifier from './utils/notifier';
-import MissingStateContextError from './error/missing-state-context';
-import useForceUpdate from './hooks/useForceUpdate';
-import didDependencyChange from './utils/did-dependency-change';
+import createHookedContext from './hooked-context';
 
 export interface ReducerContextProviderProps<State> {
   value?: State;
@@ -52,144 +48,80 @@ export default function createReducerContext<State, Action>(
   reducer: Reducer<State, Action>,
   defaultValue: State,
 ): ReducerContextInterface<State, Action> {
-  const InternalContext = createContext<Notifier<ContextValue<State, Action>> | null>(null);
+  type ReducerTuple = ContextValue<State, Action>;
+  type ReducerProvider = ReducerContextProviderProps<State>;
 
-  function useNotifier(): Notifier<ContextValue<State, Action>> {
-    const notifier = useContext(InternalContext);
+  const InternalContext = createHookedContext<ReducerTuple, ReducerProvider>(
+    ({ value }) => (
+      useReducer(reducer, value ?? defaultValue)
+    ),
+  );
 
-    if (!notifier) {
-      throw new MissingStateContextError(InternalContext.displayName);
-    }
-
-    return notifier;
-  }
-
-  function NotifierConsumer(
-    { value, children }: ReducerContextProviderProps<State>,
-  ): JSX.Element {
-    const [state, dispatch] = React.useReducer(
-      reducer,
-      value ?? defaultValue,
-    );
-
-    const notifier = useNotifier();
-
-    notifier.sync([state, dispatch]);
-
-    useEffect(() => {
-      notifier.consume([state, dispatch]);
-    }, [notifier, state]);
-
-    return (
-      <>
-        { children }
-      </>
-    );
-  }
-
-  function Provider(
-    { value, children }: ReducerContextProviderProps<State>,
-  ): JSX.Element {
-    const notifier = useConstant(
-      () => new Notifier<ContextValue<State, Action>>([defaultValue, (): State => defaultValue]),
-    );
-
-    return (
-      <InternalContext.Provider value={notifier}>
-        <NotifierConsumer value={value}>
-          { children }
-        </NotifierConsumer>
-      </InternalContext.Provider>
-    );
-  }
-
-  function useState(): ContextValue<State, Action> {
-    const notifier = useNotifier();
-
-    const forceUpdate = useForceUpdate();
-
-    useEffect(() => {
-      const callback = (): void => {
-        forceUpdate();
-      };
-
-      notifier.on(callback);
-
-      return (): void => notifier.off(callback);
-    }, [notifier, forceUpdate]);
-
-    return notifier.value;
+  function useState(): ReducerTuple {
+    return InternalContext.useValue();
   }
 
   function useValue(): State {
-    const [state] = useState();
-
-    return state;
+    return useState()[0];
   }
 
   function useDispatch(): Dispatch<Action> {
-    return useNotifier().value[1];
+    return useState()[1];
   }
 
-  function useSelectedState<R>(selector: (value: State) => R): [R, Dispatch<Action>] {
-    const notifier = useNotifier();
+  function useSelectedState<R>(selector: (value: State) => R): ContextValue<R, Action> {
+    const internalSelector = useCallback(([next, dispatch]): ContextValue<R, Action> => (
+      [selector(next), dispatch]
+    ), [selector]);
 
-    const [state, setState] = React.useState(() => selector(notifier.value[0]));
-
-    useEffect(() => {
-      const callback = ([next]: ContextValue<State, Action>): void => {
-        setState(() => selector(next));
-      };
-
-      notifier.on(callback);
-
-      return (): void => notifier.off(callback);
-    }, [notifier, selector, setState]);
-
-    return React.useMemo(
-      () => [state, notifier.value[1]],
-      [state, notifier.value],
-    );
+    return InternalContext.useSelectedValues(internalSelector);
   }
 
   function useSelectedValue<R>(selector: (value: State) => R): R {
-    const [state] = useSelectedState(selector);
+    const internalSelector = useCallback(([next]): R => (
+      selector(next)
+    ), [selector]);
 
-    return state;
+    return InternalContext.useSelectedValue(internalSelector);
   }
 
   function useSelectedStates<R extends any[]>(
     selector: (value: State) => R,
-  ): [R, Dispatch<Action>] {
-    const notifier = useNotifier();
+  ): ContextValue<R, Action> {
+    const internalSelector = useCallback(([next, dispatch]) => (
+      [dispatch, ...selector(next)]
+    ), [selector]);
 
-    const [state, setState] = React.useState(() => selector(notifier.value[0]));
+    const values = InternalContext.useSelectedValues(internalSelector);
 
-    useEffect(() => {
-      const callback = ([next]: ContextValue<State, Action>): void => {
-        const selected = selector(next);
+    return useMemo<ContextValue<R, Action>>(() => {
+      const [dispatch, ...states] = values;
 
-        setState((prev) => (didDependencyChange(prev, selected) ? selected : prev));
-      };
-
-      notifier.on(callback);
-
-      return (): void => notifier.off(callback);
-    }, [notifier, selector, setState]);
-
-    return React.useMemo(
-      () => [state, notifier.value[1]],
-      [state, notifier.value],
-    );
+      return [states as R, dispatch];
+    }, [values]);
   }
 
   function useSelectedValues<R extends any[]>(selector: (value: State) => R): R {
-    const [state] = useSelectedStates(selector);
+    const internalSelector = useCallback(([next]): R => (
+      selector(next)
+    ), [selector]);
 
-    return state;
+    return InternalContext.useSelectedValues(internalSelector);
   }
 
-  function Consumer({ children }: ReducerContextConsumerProps<State, Action>): JSX.Element {
+  function Provider(
+    { value, children }: ReducerProvider,
+  ): JSX.Element {
+    return (
+      <InternalContext.Provider value={value}>
+        { children }
+      </InternalContext.Provider>
+    );
+  }
+
+  function Consumer(
+    { children }: ReducerContextConsumerProps<State, Action>,
+  ): JSX.Element {
     const [state, setState] = useState();
 
     return children(state, setState);

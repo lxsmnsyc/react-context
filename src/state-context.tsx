@@ -1,12 +1,8 @@
 import React, {
-  SetStateAction, Dispatch, createContext, useContext, useEffect,
+  SetStateAction, Dispatch, useCallback, useMemo,
 } from 'react';
 import { ContextInterface } from './types';
-import useConstant from './hooks/useConstant';
-import Notifier from './utils/notifier';
-import MissingStateContextError from './error/missing-state-context';
-import useForceUpdate from './hooks/useForceUpdate';
-import didDependencyChange from './utils/did-dependency-change';
+import createHookedContext from './hooked-context';
 
 export interface StateContextProviderProps<State> {
   value?: State | (() => State);
@@ -51,132 +47,75 @@ export interface StateContextInterface<State> extends BaseContextInterface<State
 export default function createStateContext<State>(
   defaultValue: State,
 ): StateContextInterface<State> {
-  const InternalContext = createContext<Notifier<ContextValue<State>> | null>(null);
+  type StateTuple = ContextValue<State>;
+  type StateProvider = StateContextProviderProps<State>;
 
-  function useNotifier(): Notifier<ContextValue<State>> {
-    const notifier = useContext(InternalContext);
-
-    if (!notifier) {
-      throw new MissingStateContextError(InternalContext.displayName);
-    }
-
-    return notifier;
-  }
-
-  function NotifierConsumer({ value, children }: StateContextProviderProps<State>): JSX.Element {
-    const [state, setState] = React.useState<State>(value ?? defaultValue);
-
-    const notifier = useNotifier();
-
-    notifier.sync([state, setState]);
-
-    useEffect(() => {
-      notifier.consume([state, setState]);
-    }, [notifier, state]);
-
-    return (
-      <>
-        { children }
-      </>
-    );
-  }
-
-  function Provider({ value, children }: StateContextProviderProps<State>): JSX.Element {
-    const notifier = useConstant(
-      () => new Notifier<ContextValue<State>>([defaultValue, (): State => defaultValue]),
-    );
-
-    return (
-      <InternalContext.Provider value={notifier}>
-        <NotifierConsumer value={value}>
-          { children }
-        </NotifierConsumer>
-      </InternalContext.Provider>
-    );
-  }
+  const InternalContext = createHookedContext<StateTuple, StateProvider>(
+    ({ value }) => (
+      React.useState(value ?? defaultValue)
+    ),
+  );
 
   function useState(): ContextValue<State> {
-    const notifier = useNotifier();
-
-    const forceUpdate = useForceUpdate();
-
-    useEffect(() => {
-      const callback = (): void => {
-        forceUpdate();
-      };
-
-      notifier.on(callback);
-
-      return (): void => notifier.off(callback);
-    }, [notifier, forceUpdate]);
-
-    return notifier.value;
+    return InternalContext.useValue();
   }
 
   function useValue(): State {
-    const [state] = useState();
-
-    return state;
+    return useState()[0];
   }
 
   function useSetState(): SetState<State> {
-    return useNotifier().value[1];
+    return useState()[1];
   }
 
   function useSelectedState<R>(selector: (value: State) => R): [R, SetState<State>] {
-    const notifier = useNotifier();
+    const internalSelector = useCallback(([next, dispatch]): [R, SetState<State>] => (
+      [selector(next), dispatch]
+    ), [selector]);
 
-    const [state, setState] = React.useState(() => selector(notifier.value[0]));
-
-    useEffect(() => {
-      const callback = ([next]: ContextValue<State>): void => {
-        setState(() => selector(next));
-      };
-
-      notifier.on(callback);
-
-      return (): void => notifier.off(callback);
-    }, [notifier, selector, setState]);
-
-    return React.useMemo(
-      () => [state, notifier.value[1]],
-      [state, notifier.value],
-    );
+    return InternalContext.useSelectedValues(internalSelector);
   }
 
   function useSelectedValue<R>(selector: (value: State) => R): R {
-    const [state] = useSelectedState(selector);
+    const internalSelector = useCallback(([next]): R => (
+      selector(next)
+    ), [selector]);
 
-    return state;
+    return InternalContext.useSelectedValue(internalSelector);
   }
 
-  function useSelectedStates<R extends any[]>(selector: (value: State) => R): [R, SetState<State>] {
-    const notifier = useNotifier();
+  function useSelectedStates<R extends any[]>(
+    selector: (value: State) => R,
+  ): [R, SetState<State>] {
+    const internalSelector = useCallback(([next, dispatch]) => (
+      [dispatch, ...selector(next)]
+    ), [selector]);
 
-    const [state, setState] = React.useState(() => selector(notifier.value[0]));
+    const values = InternalContext.useSelectedValues(internalSelector);
 
-    useEffect(() => {
-      const callback = ([next]: ContextValue<State>): void => {
-        const selected = selector(next);
+    return useMemo<[R, SetState<State>]>(() => {
+      const [dispatch, ...states] = values;
 
-        setState((prev) => (didDependencyChange(prev, selected) ? selected : prev));
-      };
-
-      notifier.on(callback);
-
-      return (): void => notifier.off(callback);
-    }, [notifier, selector, setState]);
-
-    return React.useMemo(
-      () => [state, notifier.value[1]],
-      [state, notifier.value],
-    );
+      return [states as R, dispatch];
+    }, [values]);
   }
 
   function useSelectedValues<R extends any[]>(selector: (value: State) => R): R {
-    const [state] = useSelectedStates(selector);
+    const internalSelector = useCallback(([next]): R => (
+      selector(next)
+    ), [selector]);
 
-    return state;
+    return InternalContext.useSelectedValues(internalSelector);
+  }
+
+  function Provider(
+    { value, children }: StateProvider,
+  ): JSX.Element {
+    return (
+      <InternalContext.Provider value={value}>
+        { children }
+      </InternalContext.Provider>
+    );
   }
 
   function Consumer({ children }: StateContextConsumerProps<State>): JSX.Element {
@@ -185,7 +124,9 @@ export default function createStateContext<State>(
     return children(state, setState);
   }
 
-  function Selector<R>({ selector, children }: StateContextSelectorProps<State, R>): JSX.Element {
+  function Selector<R>(
+    { selector, children }: StateContextSelectorProps<State, R>,
+  ): JSX.Element {
     const [state, setState] = useSelectedState(selector);
 
     return children(state, setState);

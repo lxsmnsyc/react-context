@@ -1,7 +1,7 @@
 import React, {
-  createContext, useContext, useEffect, ReactNode,
+  createContext, useContext, useEffect, PropsWithChildren,
 } from 'react';
-import { ContextInterface } from './types';
+import { ContextInterface, AccessibleObject } from './types';
 import useConstant from './hooks/useConstant';
 import Notifier from './utils/notifier';
 import MissingStateContextError from './error/missing-state-context';
@@ -9,7 +9,8 @@ import useForceUpdate from './hooks/useForceUpdate';
 import didDependencyChange from './utils/did-dependency-change';
 import DesyncContextError from './error/desync-hooked-context';
 
-export type HookedContextProviderProps<Props> = Props & { children?: ReactNode };
+export type HookedContextProviderProps<Props extends AccessibleObject> =
+  PropsWithChildren<Props>
 
 export interface HookedContextConsumerProps<State> {
   children: (value: State) => JSX.Element;
@@ -31,7 +32,7 @@ type BaseContextInterface<State, Props> =
     HookedContextConsumerProps<State>
   >;
 
-export interface StateContextInterface<State, Props> extends BaseContextInterface<State, Props> {
+export interface HookedContextInterface<State, Props> extends BaseContextInterface<State, Props> {
   useValue(): State;
   useSelectedValue<R>(selector: (value: State) => R): R;
   useSelectedValues<R extends any[]>(selector: (value: State) => R): R;
@@ -44,9 +45,9 @@ interface Ref<T> {
   current: T;
 }
 
-export default function createHookedContext<State, Props>(
+export default function createHookedContext<State, Props extends AccessibleObject = {}>(
   useHook: (props: Props) => State,
-): StateContextInterface<State, Props> {
+): HookedContextInterface<State, Props> {
   const InternalContext = createContext<Notifier<Ref<State> | null> | null>(null);
 
   function useNotifier(): Notifier<Ref<State> | null> {
