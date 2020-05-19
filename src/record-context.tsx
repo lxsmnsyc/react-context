@@ -1,7 +1,7 @@
 import React, {
   createContext, useContext, ReactNode, useEffect,
 } from 'react';
-import Notifier from './notifier';
+import Notifier from './utils/notifier';
 import MissingStateContextError from './error/missing-state-context';
 import useConstant from './hooks/useConstant';
 import { ContextInterface } from '.';

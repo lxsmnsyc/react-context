@@ -3,9 +3,10 @@ import React, {
 } from 'react';
 import { ContextInterface } from './types';
 import useConstant from './hooks/useConstant';
-import Notifier from './notifier';
+import Notifier from './utils/notifier';
 import MissingStateContextError from './error/missing-state-context';
 import useForceUpdate from './hooks/useForceUpdate';
+import didDependencyChange from './utils/did-dependency-change';
 
 export interface StateContextProviderProps<State> {
   value?: State | (() => State);
@@ -23,6 +24,11 @@ export interface StateContextSelectorProps<State, R> {
   children: (value: R, set: SetState<State>) => JSX.Element;
 }
 
+export interface StateContextSelectorsProps<State, R extends any[]> {
+  selector: (value: State) => R;
+  children: (value: R, set: SetState<State>) => JSX.Element;
+}
+
 type BaseContextInterface<State> =
   ContextInterface<StateContextProviderProps<State>, StateContextConsumerProps<State>>;
 
@@ -35,8 +41,11 @@ export interface StateContextInterface<State> extends BaseContextInterface<State
   useSetState(): SetState<State>;
   useSelectedValue<R>(selector: (value: State) => R): R;
   useSelectedState<R>(selector: (value: State) => R): [R, SetState<State>];
+  useSelectedValues<R extends any[]>(selector: (value: State) => R): R;
+  useSelectedStates<R extends any[]>(selector: (value: State) => R): [R, SetState<State>];
 
   Selector<R>(props: StateContextSelectorProps<State, R>): JSX.Element;
+  Selectors<R extends any[]>(props: StateContextSelectorsProps<State, R>): JSX.Element;
 }
 
 export default function createStateContext<State>(
@@ -121,7 +130,7 @@ export default function createStateContext<State>(
 
     useEffect(() => {
       const callback = ([next]: ContextValue<State>): void => {
-        setState(selector(next));
+        setState(() => selector(next));
       };
 
       notifier.on(callback);
@@ -141,6 +150,35 @@ export default function createStateContext<State>(
     return state;
   }
 
+  function useSelectedStates<R extends any[]>(selector: (value: State) => R): [R, SetState<State>] {
+    const notifier = useNotifier();
+
+    const [state, setState] = React.useState(() => selector(notifier.value[0]));
+
+    useEffect(() => {
+      const callback = ([next]: ContextValue<State>): void => {
+        const selected = selector(next);
+
+        setState((prev) => (didDependencyChange(prev, selected) ? selected : prev));
+      };
+
+      notifier.on(callback);
+
+      return (): void => notifier.off(callback);
+    }, [notifier, selector, setState]);
+
+    return React.useMemo(
+      () => [state, notifier.value[1]],
+      [state, notifier.value],
+    );
+  }
+
+  function useSelectedValues<R extends any[]>(selector: (value: State) => R): R {
+    const [state] = useSelectedStates(selector);
+
+    return state;
+  }
+
   function Consumer({ children }: StateContextConsumerProps<State>): JSX.Element {
     const [state, setState] = useState();
 
@@ -153,10 +191,19 @@ export default function createStateContext<State>(
     return children(state, setState);
   }
 
+  function Selectors<R extends any[]>(
+    { selector, children }: StateContextSelectorsProps<State, R>,
+  ): JSX.Element {
+    const [state, setState] = useSelectedStates(selector);
+
+    return children(state, setState);
+  }
+
   return {
     Provider,
     Consumer,
     Selector,
+    Selectors,
 
     set displayName(value: string | undefined) {
       InternalContext.displayName = value;
@@ -170,5 +217,7 @@ export default function createStateContext<State>(
     useSetState,
     useSelectedState,
     useSelectedValue,
+    useSelectedStates,
+    useSelectedValues,
   };
 }

@@ -3,9 +3,10 @@ import React, {
 } from 'react';
 import { ContextInterface } from './types';
 import useConstant from './hooks/useConstant';
-import Notifier from './notifier';
+import Notifier from './utils/notifier';
 import MissingStateContextError from './error/missing-state-context';
 import useForceUpdate from './hooks/useForceUpdate';
+import didDependencyChange from './utils/did-dependency-change';
 
 export interface ReducerContextProviderProps<State> {
   value?: State;
@@ -14,6 +15,15 @@ export interface ReducerContextProviderProps<State> {
 
 export interface ReducerContextConsumerProps<State, Action> {
   children: (value: State, set: Dispatch<Action>) => JSX.Element;
+}
+export interface ReducerContextSelectorProps<State, R, Action> {
+  selector: (value: State) => R;
+  children: (value: R, set: Dispatch<Action>) => JSX.Element;
+}
+
+export interface ReducerContextSelectorsProps<State, R extends any[], Action> {
+  selector: (value: State) => R;
+  children: (value: R, set: Dispatch<Action>) => JSX.Element;
 }
 
 type BaseContextInterface<State, Action> =
@@ -31,9 +41,14 @@ export interface ReducerContextInterface<State, Action>
   useDispatch(): Dispatch<Action>;
   useSelectedValue<R>(selector: (value: State) => R): R;
   useSelectedState<R>(selector: (value: State) => R): [R, Dispatch<Action>];
+  useSelectedValues<R extends any[]>(selector: (value: State) => R): R;
+  useSelectedStates<R extends any[]>(selector: (value: State) => R): [R, Dispatch<Action>];
+
+  Selector<R>(props: ReducerContextSelectorProps<State, R, Action>): JSX.Element;
+  Selectors<R extends any[]>(props: ReducerContextSelectorsProps<State, R, Action>): JSX.Element;
 }
 
-export default function createStateContext<State, Action>(
+export default function createReducerContext<State, Action>(
   reducer: Reducer<State, Action>,
   defaultValue: State,
 ): ReducerContextInterface<State, Action> {
@@ -72,7 +87,9 @@ export default function createStateContext<State, Action>(
     );
   }
 
-  function Provider({ value, children }: ReducerContextProviderProps<State>): JSX.Element {
+  function Provider(
+    { value, children }: ReducerContextProviderProps<State>,
+  ): JSX.Element {
     const notifier = useConstant(
       () => new Notifier<ContextValue<State, Action>>([defaultValue, (): State => defaultValue]),
     );
@@ -121,7 +138,7 @@ export default function createStateContext<State, Action>(
 
     useEffect(() => {
       const callback = ([next]: ContextValue<State, Action>): void => {
-        setState(selector(next));
+        setState(() => selector(next));
       };
 
       notifier.on(callback);
@@ -141,8 +158,55 @@ export default function createStateContext<State, Action>(
     return state;
   }
 
+  function useSelectedStates<R extends any[]>(
+    selector: (value: State) => R,
+  ): [R, Dispatch<Action>] {
+    const notifier = useNotifier();
+
+    const [state, setState] = React.useState(() => selector(notifier.value[0]));
+
+    useEffect(() => {
+      const callback = ([next]: ContextValue<State, Action>): void => {
+        const selected = selector(next);
+
+        setState((prev) => (didDependencyChange(prev, selected) ? selected : prev));
+      };
+
+      notifier.on(callback);
+
+      return (): void => notifier.off(callback);
+    }, [notifier, selector, setState]);
+
+    return React.useMemo(
+      () => [state, notifier.value[1]],
+      [state, notifier.value],
+    );
+  }
+
+  function useSelectedValues<R extends any[]>(selector: (value: State) => R): R {
+    const [state] = useSelectedStates(selector);
+
+    return state;
+  }
+
   function Consumer({ children }: ReducerContextConsumerProps<State, Action>): JSX.Element {
     const [state, setState] = useState();
+
+    return children(state, setState);
+  }
+
+  function Selector<R>(
+    { selector, children }: ReducerContextSelectorProps<State, R, Action>,
+  ): JSX.Element {
+    const [state, setState] = useSelectedState(selector);
+
+    return children(state, setState);
+  }
+
+  function Selectors<R extends any[]>(
+    { selector, children }: ReducerContextSelectorsProps<State, R, Action>,
+  ): JSX.Element {
+    const [state, setState] = useSelectedStates(selector);
 
     return children(state, setState);
   }
@@ -150,6 +214,8 @@ export default function createStateContext<State, Action>(
   return {
     Provider,
     Consumer,
+    Selector,
+    Selectors,
 
     set displayName(value: string | undefined) {
       InternalContext.displayName = value;
@@ -163,5 +229,7 @@ export default function createStateContext<State, Action>(
     useDispatch,
     useSelectedState,
     useSelectedValue,
+    useSelectedStates,
+    useSelectedValues,
   };
 }
