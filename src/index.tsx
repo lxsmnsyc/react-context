@@ -25,9 +25,24 @@
  * @author Alexis Munsayac <alexis.munsayac@gmail.com>
  * @copyright Alexis Munsayac 2020
  */
+import createHookedContext from './hooked-context';
+import createAsyncContext from './async-context';
+import createRecordContext from './record-context';
+import createReducerContext from './reducer-context';
+import createStateContext from './state-context';
+
+
 export * from './types';
 export * from './hooked-context';
 export * from './state-context';
 export * from './record-context';
 export * from './reducer-context';
 export * from './async-context';
+
+export {
+  createHookedContext,
+  createAsyncContext,
+  createRecordContext,
+  createReducerContext,
+  createStateContext,
+};
