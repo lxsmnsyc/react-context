@@ -39,6 +39,15 @@ export type AsyncContextProviderProps<Props extends AccessibleObject> =
 export interface AsyncContextConsumerProps<State> {
   children: (value: AsyncState<State>) => JSX.Element;
 }
+export interface AsyncContextSelectorProps<State, R> {
+  selector: (value: AsyncState<State>) => R;
+  children: (value: R) => JSX.Element;
+}
+
+export interface AsyncContextSelectorsProps<State, R extends any[]> {
+  selector: (value: AsyncState<State>) => R;
+  children: (value: R) => JSX.Element;
+}
 
 type BaseContextInterface<State, Props> =
   ContextInterface<
@@ -48,6 +57,11 @@ type BaseContextInterface<State, Props> =
 
 export interface AsyncContextInterface<State, Props> extends BaseContextInterface<State, Props> {
   useValue(): AsyncState<State>;
+  useSelectedValue<R>(selector: (value: AsyncState<State>) => R): R;
+  useSelectedValues<R extends any[]>(selector: (value: AsyncState<State>) => R): R;
+
+  Selector<R>(props: AsyncContextSelectorProps<State, R>): JSX.Element;
+  Selectors<R extends any[]>(props: AsyncContextSelectorsProps<State, R>): JSX.Element;
 }
 
 export default function createAsyncContext<State, Props extends AccessibleObject = {}>(
@@ -89,6 +103,14 @@ export default function createAsyncContext<State, Props extends AccessibleObject
     return InternalContext.useValue();
   }
 
+  function useSelectedValue<R>(selector: (value: AsyncState<State>) => R): R {
+    return InternalContext.useSelectedValue(selector);
+  }
+
+  function useSelectedValues<R extends any[]>(selector: (value: AsyncState<State>) => R): R {
+    return InternalContext.useSelectedValues(selector);
+  }
+
   function Consumer(
     { children }: AsyncContextConsumerProps<State>,
   ): JSX.Element {
@@ -107,9 +129,27 @@ export default function createAsyncContext<State, Props extends AccessibleObject
     );
   }
 
+  function Selector<R>(
+    { selector, children }: AsyncContextSelectorProps<State, R>,
+  ): JSX.Element {
+    const value = useSelectedValue(selector);
+
+    return children(value);
+  }
+
+  function Selectors<R extends any[]>(
+    { selector, children }: AsyncContextSelectorsProps<State, R>,
+  ): JSX.Element {
+    const value = useSelectedValues(selector);
+
+    return children(value);
+  }
+
   return {
     Provider,
     Consumer,
+    Selector,
+    Selectors,
 
     set displayName(value: string | undefined) {
       InternalContext.displayName = value;
@@ -119,5 +159,7 @@ export default function createAsyncContext<State, Props extends AccessibleObject
     },
 
     useValue,
+    useSelectedValue,
+    useSelectedValues,
   };
 }
