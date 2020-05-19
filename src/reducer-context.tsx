@@ -89,11 +89,19 @@ export default function createReducerContext<State, Action>(
   }
 
   function useValue(): State {
-    return useState()[0];
+    const internalSelector = useCallback(([next]): State => (
+      next
+    ), []);
+
+    return InternalContext.useSelectedValue(internalSelector);
   }
 
   function useDispatch(): Dispatch<Action> {
-    return useState()[1];
+    const internalSelector = useCallback(([, dispatch]): Dispatch<Action> => (
+      dispatch
+    ), []);
+
+    return InternalContext.useSelectedValue(internalSelector);
   }
 
   function useSelectedState<R>(selector: (value: State) => R): ContextValue<R, Action> {

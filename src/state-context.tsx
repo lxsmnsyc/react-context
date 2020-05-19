@@ -88,11 +88,19 @@ export default function createStateContext<State>(
   }
 
   function useValue(): State {
-    return useState()[0];
+    const internalSelector = useCallback(([next]): State => (
+      next
+    ), []);
+
+    return InternalContext.useSelectedValue(internalSelector);
   }
 
   function useSetState(): SetState<State> {
-    return useState()[1];
+    const internalSelector = useCallback(([, dispatch]): SetState<State> => (
+      dispatch
+    ), []);
+
+    return InternalContext.useSelectedValue(internalSelector);
   }
 
   function useSelectedState<R>(selector: (value: State) => R): [R, SetState<State>] {
