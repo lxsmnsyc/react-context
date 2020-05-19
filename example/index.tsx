@@ -20,6 +20,8 @@ function Increment() {
     setCount((count) => count + 1);
   }, []);
 
+  console.log('Updated Increment');
+
   return (
     <button onClick={increment} type="button">Increment</button>
   );
@@ -31,6 +33,8 @@ function Decrement() {
   const decrement = React.useCallback(() => {
     setCount((count) => count - 1);
   }, []);
+
+  console.log('Updated Decrement');
 
   return (
     <button onClick={decrement} type="button">Decrement</button>
